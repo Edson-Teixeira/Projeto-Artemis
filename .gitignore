@@ -1,0 +1,19 @@
+# Build and intermediate directories
+bin/
+obj/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Output compiled binaries from GameData
+GameData/OraculoGuidance/Plugins/*.dll
+GameData/OraculoGuidance/Plugins/*.pdb
+GameData/OraculoGuidance/Plugins/*.mdb
+
+# Reference and temporary files
+MechPeste-Python/
+
+# OS specific files
+.DS_Store
+Thumbs.db
