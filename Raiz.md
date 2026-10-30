@@ -17,7 +17,7 @@ Criar um piloto automático / assistente de navegação para o jogo **KSP (Kerba
 * **Altitude Alvo:** Campo na interface para digitar a altitude desejada do apoastro (ex: 80.000m / 80km).
 * **Direção da Curva Gravitacional (Azimute):** Ângulo de 0° a 359° (padrão 90° = Leste).
 * **Programa de Roll:** Manter ângulo de Roll travado em 0° de forma global.
-* **Curva de Subida:** Subida vertical inicial (~500m) seguida de inclinação gradativa e contínua em direção ao horizonte.
+* **Curva de Subida (Modelo MechJeb 2):** Subida vertical inicial até 3.5 km ou velocidade de 100 m/s (~98.9 m/s). Em seguida, executa a curva de potência matemática do MechJeb 2 com Turn Shape de 40% (0.40) até 60 km, finalizando na horizontal (0° de pitch) na transição para o vácuo.
 * **Auto-Staging:** Monitorar os motores em queima. Detectar esgotamento de combustível (flameout), desacoplar o estágio vazio e acionar o próximo estágio automaticamente.
 * **Transição Atmosférica:**
   * Ao subir acima de 75km: estender painéis solares, antenas, radiadores e ejetar coifas (fairings).

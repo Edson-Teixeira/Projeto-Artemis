@@ -35,6 +35,15 @@ namespace Artemis.Flight
         public double TargetHeading = 90.0;         // 90° = Leste
         public double TargetRoll = 0.0;             // Roll travado em 0°
 
+        // Modelo de Curva Gravitacional Clássico do MechJeb 2 (Ascent Path Editor)
+        public double TurnStartAltitude = 3500.0;   // Início da curva aos 3.5 km
+        public double TurnStartVelocity = 100.0;   // Ou ao atingir ~100 m/s (98.9 m/s)
+        public double TurnEndAltitude = 60000.0;   // Fim da curva aos 60 km
+        public double FinalFlightPathAngle = 0.0;  // Ângulo final de 0° (horizontal)
+        public double TurnShape = 0.40;            // Formato da curva: 40% (expoente 0.40)
+
+        private double _actualTurnStartAltitude = 3500.0;
+
         public AscentPhase CurrentPhase { get; private set; } = AscentPhase.Idle;
         public bool IsActive => CurrentPhase != AscentPhase.Idle && CurrentPhase != AscentPhase.Complete;
         public string StatusMessage { get; private set; } = "Pronto para decolar";
@@ -49,8 +58,9 @@ namespace Artemis.Flight
             TargetHeading = (heading % 360.0 + 360.0) % 360.0;
             CurrentPhase = AscentPhase.VerticalClimb;
             _spaceFuelJettisonDone = false;
+            _actualTurnStartAltitude = TurnStartAltitude;
             StatusMessage = "Iniciando subida vertical...";
-            ScreenMessages.PostScreenMessage($"[Artemis] Lançamento iniciado! Alvo: {TargetApoapsis / 1000:F0}km | Azimute: {TargetHeading:F0}°", 5f, ScreenMessageStyle.UPPER_CENTER);
+            ScreenMessages.PostScreenMessage($"[Artemis] Lançamento iniciado! Alvo: {TargetApoapsis / 1000:F0}km | Curva MechJeb 2 (3.5km -> 60km, Shape 40%)", 5f, ScreenMessageStyle.UPPER_CENTER);
         }
 
         public void Abort(TelemetryReader telemetry)
@@ -94,42 +104,49 @@ namespace Artemis.Flight
         }
 
         /// <summary>
-        /// Fase 1: Sobe reto apenas para livrar a torre de lançamento (~500m ou 50m/s).
+        /// Fase 1: Sobe reto no azimute alvo até atingir a altitude de início (3.5km) ou velocidade de início (100m/s).
+        /// Segue exatamente o padrão do MechJeb 2 Ascent Path Editor.
         /// </summary>
         private void HandleVerticalClimb(TelemetryReader telemetry)
         {
             _commandedThrottle = 1.0f;
             SetAttitude(telemetry, TargetHeading, 90.0, TargetRoll);
 
-            StatusMessage = "Subida Vertical: Livrando a plataforma...";
+            StatusMessage = $"Subida Vertical: {telemetry.AltitudeASL / 1000:F1}km / 3.5km ({telemetry.SurfaceSpeed:F0} m/s)";
 
-            // Inicia a curva bem cedo para não subir "em pé"
-            if (telemetry.AltitudeASL >= 500.0 || telemetry.SurfaceSpeed >= 50.0)
+            // Condição do MechJeb: Inicia a curva ao atingir 3.5 km OU velocidade de 100 m/s (~98.9 m/s)
+            if (telemetry.AltitudeASL >= TurnStartAltitude || telemetry.SurfaceSpeed >= TurnStartVelocity)
             {
+                _actualTurnStartAltitude = Math.Min(telemetry.AltitudeASL, TurnEndAltitude - 5000.0);
                 CurrentPhase = AscentPhase.GravityTurn;
-                StatusMessage = "Iniciando Curva Gravitacional...";
+                StatusMessage = "Iniciando Curva Gravitacional (Modelo MechJeb 2)...";
+                ScreenMessages.PostScreenMessage("[Artemis] Curva Gravitacional MechJeb iniciada!", 3f, ScreenMessageStyle.UPPER_CENTER);
             }
         }
 
         /// <summary>
-        /// Fase 2: Inclina progressivamente em direção ao horizonte.
-        /// Aos 1.000m: pitch ~84°
-        /// Aos 5.000m: pitch ~67°
-        /// Aos 10.000m: pitch ~54°
-        /// Aos 20.000m: pitch ~35°
-        /// Aos 35.000m: pitch ~15°
-        /// Acima de 45.000m: pitch ~0° (horizontal)
+        /// Fase 2: Curva gravitacional baseada no modelo clássico do MechJeb 2:
+        /// pitch = 90 - (progress^TurnShape) * (90 - FinalFlightPathAngle)
+        /// Onde:
+        /// - TurnStart: 3.5 km (ou velocidade de disparo)
+        /// - TurnEnd: 60 km
+        /// - FinalFlightPathAngle: 0°
+        /// - TurnShape: 40% (0.40)
         /// </summary>
         private void HandleGravityTurn(TelemetryReader telemetry)
         {
             double alt = telemetry.AltitudeASL;
-            double turnStart = 500.0;
-            double turnEnd = 45000.0;
 
-            double linear = Mathf.Clamp01((float)((alt - turnStart) / (turnEnd - turnStart)));
-            double progress = Math.Pow(linear, 0.6);
-            double pitch = 90.0 - (progress * 90.0);
-            pitch = Math.Max(0.0, pitch);
+            // Fração normalizada de altitude entre o início da curva e o final da atmosfera (60km)
+            double range = Math.Max(100.0, TurnEndAltitude - _actualTurnStartAltitude);
+            double fraction = Mathf.Clamp01((float)((alt - _actualTurnStartAltitude) / range));
+
+            // Curva de potência exponencial do MechJeb (TurnShape = 0.40)
+            double progress = Math.Pow(fraction, TurnShape);
+
+            // Cálculo do pitch alvo
+            double pitch = 90.0 - (progress * (90.0 - FinalFlightPathAngle));
+            pitch = Mathf.Clamp((float)pitch, (float)FinalFlightPathAngle, 90f);
 
             SetAttitude(telemetry, TargetHeading, pitch, TargetRoll);
 
@@ -151,7 +168,7 @@ namespace Artemis.Flight
             else
             {
                 _commandedThrottle = 1.0f;
-                StatusMessage = $"Curva Gravitacional: Pitch {pitch:F0}° | Ap {telemetry.Apoapsis/1000:F1}km";
+                StatusMessage = $"Curva MechJeb ({TurnShape*100:F0}%): Pitch {pitch:F0}° | Ap {telemetry.Apoapsis/1000:F1}km";
             }
         }
 

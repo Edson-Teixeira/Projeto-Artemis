@@ -99,6 +99,7 @@ namespace Artemis.UI
             _headingInput = GUILayout.TextField(_headingInput);
             GUILayout.EndHorizontal();
 
+            GUILayout.Label("<color=#88ccff>Curva MechJeb: Início 3.5km (100m/s) | Fim 60km | Shape 40%</color>");
             GUILayout.Label("<color=#aaaaaa>Roll travado em 0° (Orientação Estável)</color>");
             GUILayout.Space(6);
 

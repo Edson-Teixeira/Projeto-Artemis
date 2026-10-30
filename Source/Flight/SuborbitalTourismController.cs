@@ -94,21 +94,25 @@ namespace Artemis.Flight
             staging.Update(telemetry, _commandedThrottle);
 
             double alt = telemetry.AltitudeASL;
-            double turnStart = 500.0;
-            double turnEnd = 40000.0;
 
-            // Inicia a curva aos 500m, porém mais íngreme (inclina no máximo até 58°)
+            // Modelo clássico do MechJeb 2 adaptado para arco balístico turístico:
+            // Início aos 3.5 km ou 100 m/s, Fim aos 60 km, Turn Shape 40% (0.40)
+            // Mantém ângulo final em 58° de pitch para garantir arco alto e reentrada segura no KSC
+            double turnStart = 3500.0;
+            double turnEnd = 60000.0;
+            double finalPitch = 58.0;
+
             double pitch = 90.0;
-            if (alt >= turnStart)
+            if (alt >= turnStart || telemetry.SurfaceSpeed >= 100.0)
             {
-                double progress = Mathf.Clamp01((float)((alt - turnStart) / (turnEnd - turnStart)));
-                // Inclina até 58° de pitch (90 - 32)
-                pitch = 90.0 - (Math.Pow(progress, 0.65) * 32.0);
+                double fraction = Mathf.Clamp01((float)((alt - turnStart) / (turnEnd - turnStart)));
+                double progress = Math.Pow(fraction, 0.40);
+                pitch = 90.0 - (progress * (90.0 - finalPitch));
             }
 
             SetAttitude(telemetry, 90.0, pitch, 0.0);
 
-            StatusMessage = $"Subida Íngreme: Pitch {pitch:F0}° | Ap {telemetry.Apoapsis / 1000:F1}km / 75km";
+            StatusMessage = $"Subida MechJeb: Pitch {pitch:F0}° | Ap {telemetry.Apoapsis / 1000:F1}km / 75km";
 
             // Ao atingir 75km de Apoastro, desliga os motores e corta imediatamente
             if (telemetry.Apoapsis >= TARGET_APOAPSIS)
