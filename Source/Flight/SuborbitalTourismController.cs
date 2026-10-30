@@ -188,8 +188,9 @@ namespace Artemis.Flight
         }
 
         /// <summary>
-        /// Desacopla o booster de subida utilizado para levar a cápsula ao espaço.
-        /// Aciona tanto o StageManager quanto qualquer desacoplador ainda acoplado.
+        /// Desacopla com segurança o booster de subida utilizado para levar a cápsula ao espaço.
+        /// Aciona o próximo estágio exclusivamente pelo StageManager (respeitando o sequenciamento
+        /// do VAB e NUNCA ejetando o escudo térmico).
         /// </summary>
         private void ReleaseBooster(TelemetryReader telemetry)
         {
@@ -197,32 +198,15 @@ namespace Artemis.Flight
 
             _commandedThrottle = 0f;
 
-            Debug.Log("[Artemis Turismo] Desacoplando booster de lançamento no espaço!");
+            Debug.Log("[Artemis Turismo] Desacoplando booster de lançamento no espaço via StageManager!");
             ScreenMessages.PostScreenMessage("[Artemis Turismo] Desacoplando Booster de Subida no Espaço!", 5f, ScreenMessageStyle.UPPER_CENTER);
 
-            // 1. Aciona o estágio no StageManager se houver estágios anteriores (CurrentStage > 0)
+            // Aciona com segurança o estágio via StageManager oficial do KSP.
+            // Isso garante que apenas o estágio de separação do booster seja disparado,
+            // mantendo o escudo térmico e paraquedas intactos.
             if (StageManager.CurrentStage > 0)
             {
                 StageManager.ActivateNextStage();
-            }
-
-            // 2. Aciona diretamente todos os desacopladores ainda presos na nave
-            var decouplers = telemetry.Vessel.FindPartModulesImplementing<ModuleDecouple>();
-            for (int i = 0; i < decouplers.Count; i++)
-            {
-                if (!decouplers[i].isDecoupled)
-                {
-                    decouplers[i].Decouple();
-                }
-            }
-
-            var anchoredDecouplers = telemetry.Vessel.FindPartModulesImplementing<ModuleAnchoredDecoupler>();
-            for (int i = 0; i < anchoredDecouplers.Count; i++)
-            {
-                if (!anchoredDecouplers[i].isDecoupled)
-                {
-                    anchoredDecouplers[i].Decouple();
-                }
             }
         }
 
