@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using Artemis.Telemetry;
 using Artemis.Systems;
+using KSP.UI.Screens;
 using MuMech;
 
 namespace Artemis.Flight
@@ -40,12 +41,14 @@ namespace Artemis.Flight
 
         private float _commandedThrottle = 0f;
         public float CommandedThrottle => _commandedThrottle;
+        private bool _spaceFuelJettisonDone = false;
 
         public void StartAscent(double targetAp, double heading)
         {
             TargetApoapsis = Math.Max(72000.0, targetAp);
             TargetHeading = (heading % 360.0 + 360.0) % 360.0;
             CurrentPhase = AscentPhase.VerticalClimb;
+            _spaceFuelJettisonDone = false;
             StatusMessage = "Iniciando subida vertical...";
             ScreenMessages.PostScreenMessage($"[Artemis] Lançamento iniciado! Alvo: {TargetApoapsis / 1000:F0}km | Azimute: {TargetHeading:F0}°", 5f, ScreenMessageStyle.UPPER_CENTER);
         }
@@ -161,6 +164,18 @@ namespace Artemis.Flight
 
             // Mantém a nave apontada na horizontal (prograde)
             SetAttitude(telemetry, TargetHeading, 0.0, TargetRoll);
+
+            // Ao chegar no espaço (>= 70km), verifica se o estágio de combustível está vazio e desacopla
+            if (telemetry.AltitudeASL >= 70000.0 && !_spaceFuelJettisonDone)
+            {
+                _spaceFuelJettisonDone = true;
+                if (TelemetryReader.IsCurrentFuelEmpty(telemetry.Vessel) && StageManager.CurrentStage > 0)
+                {
+                    Debug.Log("[Artemis] Módulo de combustível vazio no espaço. Desacoplando!");
+                    ScreenMessages.PostScreenMessage("[Artemis] Chegamos ao espaço: Módulo de combustível vazio liberado!", 5f, ScreenMessageStyle.UPPER_CENTER);
+                    StageManager.ActivateNextStage();
+                }
+            }
 
             double timeToAp = telemetry.TimeToApoapsis;
             StatusMessage = $"Planando até o Apoastro ({timeToAp:F0}s restantes)...";

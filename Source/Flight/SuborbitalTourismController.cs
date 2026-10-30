@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using Artemis.Telemetry;
 using Artemis.Systems;
+using KSP.UI.Screens;
 using MuMech;
 
 namespace Artemis.Flight
@@ -9,8 +10,8 @@ namespace Artemis.Flight
     public enum SuborbitalTourismPhase
     {
         Idle,               // Desligado
-        Ascent,             // Lançamento com curva gravitacional até atingir Apoastro de 75km
-        CoastingToSpace,    // Motores cortados, cruza 70km (validação turística no vácuo)
+        Ascent,             // Lançamento com curva balística íngreme até atingir Apoastro de 75km
+        CoastingToSpace,    // Motores cortados, cruza 70km (validação turística no vácuo e descarte de combustível vazio)
         Reentry,            // Reentrada ativa no modo Lander (Retrograde Roll 0° e Paraquedas)
         Completed           // Missão concluída com pouso suave
     }
@@ -18,9 +19,9 @@ namespace Artemis.Flight
     /// <summary>
     /// SuborbitalTourismController: Gerenciador autônomo de missões de Turismo Suborbital.
     /// Unifica o lançamento em arco balístico com o retorno no modo Lander:
-    /// 1. Decola e executa curva gravitacional inclinada até 45° a Leste (dando rampa aerodinâmica de frenagem).
+    /// 1. Decola e executa curva gravitacional íngreme (inclinando suavemente até ~58° a Leste).
     /// 2. Corta motores ao atingir 75km de Apoastro.
-    /// 3. Passa dos 70km no espaço, cumprindo o contrato de turismo.
+    /// 3. Ao chegar no espaço (>= 70km), verifica se o estágio de combustível está vazio e o desacopla.
     /// 4. Transiciona automaticamente para Reentrada Lander (Retrograde com Roll 0° e paraquedas escalonados).
     /// </summary>
     public class SuborbitalTourismController
@@ -33,12 +34,14 @@ namespace Artemis.Flight
         public float CommandedThrottle => _commandedThrottle;
 
         private const double TARGET_APOAPSIS = 75000.0; // 75 km
+        private bool _spaceFuelJettisonDone = false;
 
         public void StartMission()
         {
             CurrentPhase = SuborbitalTourismPhase.Ascent;
             _commandedThrottle = 1.0f;
-            StatusMessage = "Missão iniciada: Decolando com curva balística...";
+            _spaceFuelJettisonDone = false;
+            StatusMessage = "Missão iniciada: Decolando com subida íngreme em arco...";
             ScreenMessages.PostScreenMessage("[Artemis] Missão Turismo Suborbital Iniciada!", 5f, ScreenMessageStyle.UPPER_CENTER);
         }
 
@@ -46,6 +49,7 @@ namespace Artemis.Flight
         {
             CurrentPhase = SuborbitalTourismPhase.Idle;
             _commandedThrottle = 0f;
+            _spaceFuelJettisonDone = false;
             StatusMessage = "Missão abortada pelo jogador.";
             ReleaseAttitude(telemetry);
             if (reentry != null && reentry.IsActive)
@@ -81,9 +85,8 @@ namespace Artemis.Flight
         }
 
         /// <summary>
-        /// Fase 1: Subida com curva gravitacional pronunciada em direção a Leste (90°).
-        /// Inclina o nariz até ~45° para que a reentrada seja oblíqua, permitindo que a atmosfera
-        /// freie a velocidade hipersônica suavemente antes dos paraquedas abrirem.
+        /// Fase 1: Subida com curva gravitacional mais íngreme (~58° de pitch máximo).
+        /// Mantém boa velocidade vertical para atingir 75km rapidamente, com arco suficiente para frenagem atmosférica.
         /// </summary>
         private void HandleAscent(TelemetryReader telemetry, AutoStaging staging)
         {
@@ -94,18 +97,18 @@ namespace Artemis.Flight
             double turnStart = 500.0;
             double turnEnd = 40000.0;
 
-            // Inicia subida reta e curva progressivamente até 45°
+            // Inicia a curva aos 500m, porém mais íngreme (inclina no máximo até 58°)
             double pitch = 90.0;
             if (alt >= turnStart)
             {
                 double progress = Mathf.Clamp01((float)((alt - turnStart) / (turnEnd - turnStart)));
-                // Inclina até 45° no pico da queima
-                pitch = 90.0 - (Math.Pow(progress, 0.65) * 45.0);
+                // Inclina até 58° de pitch (90 - 32)
+                pitch = 90.0 - (Math.Pow(progress, 0.65) * 32.0);
             }
 
             SetAttitude(telemetry, 90.0, pitch, 0.0);
 
-            StatusMessage = $"Subida em Arco: Pitch {pitch:F0}° | Ap {telemetry.Apoapsis / 1000:F1}km / 75km";
+            StatusMessage = $"Subida Íngreme: Pitch {pitch:F0}° | Ap {telemetry.Apoapsis / 1000:F1}km / 75km";
 
             // Ao atingir 75km de Apoastro, desliga os motores e corta imediatamente
             if (telemetry.Apoapsis >= TARGET_APOAPSIS)
@@ -119,7 +122,7 @@ namespace Artemis.Flight
 
         /// <summary>
         /// Fase 2: Planando acima de 70km (validação turística no vácuo).
-        /// Já prepara a atitude em Retrograde para que a reentrada seja perfeitamente estável.
+        /// Verifica se o módulo de combustível esgotou e o desacopla.
         /// </summary>
         private void HandleCoasting(TelemetryReader telemetry, ReentryAutopilot reentry)
         {
@@ -127,6 +130,18 @@ namespace Artemis.Flight
 
             // No vácuo, já orienta o escudo para Retrograde com Roll em 0°
             reentry.LockRetrograde(telemetry);
+
+            // Verificação solicitada: ao chegar no espaço (>= 70km), se o combustível acabou, libera o módulo!
+            if (telemetry.AltitudeASL >= 70000.0 && !_spaceFuelJettisonDone)
+            {
+                _spaceFuelJettisonDone = true;
+                if (TelemetryReader.IsCurrentFuelEmpty(telemetry.Vessel) && StageManager.CurrentStage > 0)
+                {
+                    Debug.Log("[Artemis Turismo] Módulo de combustível vazio detectado no espaço. Desacoplando!");
+                    ScreenMessages.PostScreenMessage("[Artemis] Chegamos ao espaço: Módulo de combustível vazio liberado!", 5f, ScreenMessageStyle.UPPER_CENTER);
+                    StageManager.ActivateNextStage();
+                }
+            }
 
             if (!telemetry.IsInAtmosphere)
             {

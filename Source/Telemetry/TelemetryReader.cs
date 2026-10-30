@@ -133,5 +133,55 @@ namespace Artemis.Telemetry
                 heading = 360.0 - heading;
             }
         }
+
+        /// <summary>
+        /// Verifica se o estágio/módulo de propulsão atual está vazio de combustível.
+        /// Avalia se os motores ativos sofreram flameout ou se os propelentes (LiquidFuel, Oxidizer, SolidFuel) acabaram.
+        /// </summary>
+        public static bool IsCurrentFuelEmpty(Vessel vessel)
+        {
+            if (vessel == null) return false;
+
+            var engines = vessel.FindPartModulesImplementing<ModuleEngines>();
+            int stagedEngines = 0;
+            int emptyEngines = 0;
+
+            for (int i = 0; i < engines.Count; i++)
+            {
+                var eng = engines[i];
+                if (eng.isOperational && (eng.EngineIgnited || eng.staged))
+                {
+                    stagedEngines++;
+
+                    if (eng.flameout)
+                    {
+                        emptyEngines++;
+                        continue;
+                    }
+
+                    // Avalia se há propelente disponível no motor
+                    bool hasFuel = false;
+                    if (eng.propellants != null && eng.propellants.Count > 0)
+                    {
+                        for (int p = 0; p < eng.propellants.Count; p++)
+                        {
+                            var prop = eng.propellants[p];
+                            if (!prop.isDeprived && prop.currentAmount > 0.5)
+                            {
+                                hasFuel = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!hasFuel)
+                    {
+                        emptyEngines++;
+                    }
+                }
+            }
+
+            return stagedEngines > 0 && emptyEngines >= stagedEngines;
+        }
     }
 }
