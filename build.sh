@@ -1,53 +1,54 @@
 #!/usr/bin/env bash
 set -e
 
-echo "============================================="
-echo "   ORÁCULO GUIDANCE - Build Script (Linux)   "
-echo "============================================="
+echo "=================================================="
+echo "          PROJETO ARTEMIS - BUILD SYSTEM          "
+echo "=================================================="
 
-# Detecta automaticamente o diretório do KSP na Steam do Linux
+# 1. Detecção automática do diretório do KSP
+SECONDARY_DRIVE="/mnt/21c32c7a-ee6b-4913-8493-f14c9c20f55c/SteamLibrary/steamapps/common/Kerbal Space Program"
 DEFAULT_KSP_PATH="$HOME/.steam/steam/steamapps/common/Kerbal Space Program"
 ALT_KSP_PATH="$HOME/.local/share/Steam/steamapps/common/Kerbal Space Program"
 
 if [ -z "$KSP_DIR" ]; then
-    if [ -d "$DEFAULT_KSP_PATH" ]; then
+    if [ -d "$SECONDARY_DRIVE/KSP_x64_Data" ]; then
+        export KSP_DIR="$SECONDARY_DRIVE"
+    elif [ -d "$DEFAULT_KSP_PATH/KSP_x64_Data" ]; then
         export KSP_DIR="$DEFAULT_KSP_PATH"
-    elif [ -d "$ALT_KSP_PATH" ]; then
+    elif [ -d "$ALT_KSP_PATH/KSP_x64_Data" ]; then
         export KSP_DIR="$ALT_KSP_PATH"
     fi
 fi
 
 if [ -z "$KSP_DIR" ] || [ ! -d "$KSP_DIR" ]; then
-    echo "[-] AVISO: Diretório do KSP não encontrado automaticamente."
-    echo "    Defina a variável KSP_DIR antes de rodar, exemplo:"
-    echo "    export KSP_DIR=\"$HOME/.steam/steam/steamapps/common/Kerbal Space Program\""
+    echo "[-] ERRO: Instalação do KSP não encontrada automaticamente."
+    echo "    Defina KSP_DIR manualmente, ex: export KSP_DIR=\"...\""
     exit 1
 fi
 
-echo "[+] Diretório KSP detectado: $KSP_DIR"
+echo "[+] Diretório do KSP detectado: $KSP_DIR"
 
-# Verifica se o MechJeb2 está instalado pelo CKAN
+# 2. Verificação do MechJeb2
 MECHJEB_DLL="$KSP_DIR/GameData/MechJeb2/Plugins/MechJeb2.dll"
 if [ ! -f "$MECHJEB_DLL" ]; then
     echo "[-] ERRO: MechJeb2.dll não encontrada em $MECHJEB_DLL."
-    echo "    Por favor, instale o mod 'MechJeb 2' pelo CKAN primeiro!"
+    echo "    Certifique-se de que o MechJeb 2 está instalado no KSP."
     exit 1
 fi
+echo "[+] MechJeb2 detectado com sucesso."
 
-echo "[+] MechJeb2 encontrado via CKAN."
-echo "[+] Compilando OraculoGuidance..."
+# 3. Compilação do Artemis
+echo "[+] Compilando Artemis via .NET SDK..."
+dotnet build Artemis.csproj -c Release
 
-# Compilação usando o .NET SDK
-dotnet build OraculoGuidance.csproj -c Release
-
-# Diretório de destino no jogo
-DEST_DIR="$KSP_DIR/GameData/OraculoGuidance"
+# 4. Instalação no GameData do KSP
+DEST_DIR="$KSP_DIR/GameData/Artemis"
 mkdir -p "$DEST_DIR/Plugins"
 
-echo "[+] Copiando arquivos para $DEST_DIR..."
-cp -r GameData/OraculoGuidance/* "$DEST_DIR/"
+echo "[+] Instalando no jogo em: $DEST_DIR..."
+cp -r GameData/Artemis/* "$DEST_DIR/"
 
-echo "============================================="
-echo " [OK] Mod instalado no KSP com sucesso!"
-echo " Inicie o jogo pela Steam e aperte F8 em voo."
-echo "============================================="
+echo "=================================================="
+echo " [OK] SUCESSO! Artemis compilado e instalado."
+echo " Inicie o KSP e aperte [F8] durante o voo."
+echo "=================================================="

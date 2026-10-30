@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>Artemis</AssemblyName>
+    <RootNamespace>Artemis</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>GameData/Artemis/Plugins/</OutputPath>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+  </PropertyGroup>
+
+  <!-- Pacote oficial da Microsoft para compilar .NET Framework no Linux com dotnet CLI -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- Detecção de caminhos do KSP -->
+  <PropertyGroup>
+    <KSP_DIR Condition="'$(KSP_DIR)' == '' and Exists('/mnt/21c32c7a-ee6b-4913-8493-f14c9c20f55c/SteamLibrary/steamapps/common/Kerbal Space Program')">/mnt/21c32c7a-ee6b-4913-8493-f14c9c20f55c/SteamLibrary/steamapps/common/Kerbal Space Program</KSP_DIR>
+    <KSP_DIR Condition="'$(KSP_DIR)' == '' and Exists('$(HOME)/.steam/steam/steamapps/common/Kerbal Space Program')">$(HOME)/.steam/steam/steamapps/common/Kerbal Space Program</KSP_DIR>
+    <KSP_DIR Condition="'$(KSP_DIR)' == '' and Exists('$(HOME)/.local/share/Steam/steamapps/common/Kerbal Space Program')">$(HOME)/.local/share/Steam/steamapps/common/Kerbal Space Program</KSP_DIR>
+  </PropertyGroup>
+
+  <!-- Referências do KSP e Unity -->
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(KSP_DIR)/KSP_x64_Data/Managed/Assembly-CSharp.dll</HintPath>
+      <HintPath Condition="!Exists('$(KSP_DIR)/KSP_x64_Data/Managed/Assembly-CSharp.dll')">$(KSP_DIR)/KSP_Data/Managed/Assembly-CSharp.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(KSP_DIR)/KSP_x64_Data/Managed/UnityEngine.dll</HintPath>
+      <HintPath Condition="!Exists('$(KSP_DIR)/KSP_x64_Data/Managed/UnityEngine.dll')">$(KSP_DIR)/KSP_Data/Managed/UnityEngine.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(KSP_DIR)/KSP_x64_Data/Managed/UnityEngine.CoreModule.dll</HintPath>
+      <HintPath Condition="!Exists('$(KSP_DIR)/KSP_x64_Data/Managed/UnityEngine.CoreModule.dll')">$(KSP_DIR)/KSP_Data/Managed/UnityEngine.CoreModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(KSP_DIR)/KSP_x64_Data/Managed/UnityEngine.IMGUIModule.dll</HintPath>
+      <HintPath Condition="!Exists('$(KSP_DIR)/KSP_x64_Data/Managed/UnityEngine.IMGUIModule.dll')">$(KSP_DIR)/KSP_Data/Managed/UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(KSP_DIR)/KSP_x64_Data/Managed/UnityEngine.InputLegacyModule.dll</HintPath>
+      <HintPath Condition="!Exists('$(KSP_DIR)/KSP_x64_Data/Managed/UnityEngine.InputLegacyModule.dll')">$(KSP_DIR)/KSP_Data/Managed/UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(KSP_DIR)/KSP_x64_Data/Managed/UnityEngine.UI.dll</HintPath>
+      <HintPath Condition="!Exists('$(KSP_DIR)/KSP_x64_Data/Managed/UnityEngine.UI.dll')">$(KSP_DIR)/KSP_Data/Managed/UnityEngine.UI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+
+    <!-- MechJeb2 API -->
+    <Reference Include="MechJeb2">
+      <HintPath>$(KSP_DIR)/GameData/MechJeb2/Plugins/MechJeb2.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="MechJebLib">
+      <HintPath>$(KSP_DIR)/GameData/MechJeb2/Plugins/MechJebLib.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="MechJebLibBindings">
+      <HintPath>$(KSP_DIR)/GameData/MechJeb2/Plugins/MechJebLibBindings.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

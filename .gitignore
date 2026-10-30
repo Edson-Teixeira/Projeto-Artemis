@@ -1,19 +1,32 @@
-# Build and intermediate directories
+# .NET / C# Build Artifacts
 bin/
 obj/
-*.suo
 *.user
+*.suo
 *.userosscache
 *.sln.docstates
 
-# Output compiled binaries from GameData
-GameData/OraculoGuidance/Plugins/*.dll
-GameData/OraculoGuidance/Plugins/*.pdb
-GameData/OraculoGuidance/Plugins/*.mdb
+# Compiled GameData Plugin Outputs (gerados pelo build)
+GameData/Artemis/Plugins/
 
-# Reference and temporary files
-MechPeste-Python/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
 
-# OS specific files
-.DS_Store
-Thumbs.db
+# Ambientes virtuais
+.venv/
+venv/
+ENV/
+env/
+
+# IDEs e Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
