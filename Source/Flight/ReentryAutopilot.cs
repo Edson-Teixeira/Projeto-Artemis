@@ -17,8 +17,8 @@ namespace Artemis.Flight
 
     /// <summary>
     /// ReentryAutopilot: Gerencia a reentrada segura na atmosfera.
-    /// Trava a nave no vetor Retrograde utilizando o piloto de atitude do MechJeb (que não depende de nível de piloto),
-    /// protege os sistemas e aciona sequencialmente os paraquedas até o toque no solo ou mar.
+    /// Trava no vetor Retrograde via MechJeb AttitudeController.
+    /// Mantém o SAS nativo desligado durante o controle ativo para evitar conflito/piscar de menus.
     /// </summary>
     public class ReentryAutopilot
     {
@@ -26,10 +26,13 @@ namespace Artemis.Flight
         public bool IsActive => CurrentPhase != ReentryPhase.Idle && CurrentPhase != ReentryPhase.Landed;
         public string StatusMessage { get; private set; } = "Pronto para reentrada";
 
+        private AttitudeReference _lastReference = AttitudeReference.INERTIAL;
+
         public void StartReentry(TelemetryReader telemetry)
         {
             CurrentPhase = ReentryPhase.HoldingRetrograde;
             StatusMessage = "Virando traseira para Retrograde (Escudo Térmico)...";
+            _lastReference = AttitudeReference.INERTIAL; // Força reavaliação inicial
 
             LockRetrograde(telemetry);
 
@@ -50,7 +53,7 @@ namespace Artemis.Flight
         {
             if (!IsActive || telemetry.Vessel == null) return;
 
-            // Mantém ativamente o comando de atitude em Retrograde
+            // Mantém a orientação constante em Retrograde sem conflito com SAS nativo
             LockRetrograde(telemetry);
 
             // Verifica se tocou no solo ou água
@@ -84,55 +87,39 @@ namespace Artemis.Flight
         }
 
         /// <summary>
-        /// Comanda o piloto do MechJeb a virar a nave para o vetor Retrógrado (traseira contra o vento).
+        /// Comanda o MechJeb AttitudeController a apontar para o vetor Retrograde.
+        /// Desliga o SAS nativo para que não haja disputa nem menus piscando.
         /// </summary>
         private void LockRetrograde(TelemetryReader telemetry)
         {
             if (telemetry.Vessel == null) return;
 
-            // 1. Comando direto via MechJeb AttitudeController (independente de nível de piloto do KSP)
+            // 1. Desliga o SAS nativo do KSP para que ele não tente sobrepor o MechJeb
+            if (telemetry.Vessel.ActionGroups[KSPActionGroup.SAS])
+            {
+                telemetry.Vessel.ActionGroups.SetGroup(KSPActionGroup.SAS, false);
+            }
+
+            // 2. Define o referencial: superfície na atmosfera, órbita no vácuo
+            AttitudeReference reference = telemetry.IsInAtmosphere 
+                ? AttitudeReference.SURFACE_VELOCITY 
+                : AttitudeReference.ORBIT;
+
+            // 3. Aplica o comando de atitude para Vector3d.back (Retrograde)
             if (telemetry.MechJeb != null)
             {
                 var attitude = telemetry.MechJeb.GetComputerModule<MechJebModuleAttitudeController>();
                 if (attitude != null)
                 {
-                    // Na atmosfera usa o vetor de superfície (vento aerodinâmico real)
-                    // No vácuo usa o vetor orbital
-                    AttitudeReference reference = telemetry.IsInAtmosphere 
-                        ? AttitudeReference.SURFACE_VELOCITY 
-                        : AttitudeReference.ORBIT;
-
+                    // Envia comando para virar a ré da nave diretamente para a trajetória de velocidade
                     attitude.attitudeTo(Vector3d.back, reference, this, false);
+                    _lastReference = reference;
                 }
-
-                // Configura também o SmartASS do MechJeb para garantir orientação contínua
-                var smartAss = telemetry.MechJeb.GetComputerModule<MechJebModuleSmartASS>();
-                if (smartAss != null)
-                {
-                    smartAss.Engage(true);
-                    if (telemetry.IsInAtmosphere)
-                    {
-                        smartAss.mode = MechJebModuleSmartASS.Mode.SURFACE;
-                        smartAss.target = MechJebModuleSmartASS.Target.SURFACE_RETROGRADE;
-                    }
-                    else
-                    {
-                        smartAss.mode = MechJebModuleSmartASS.Mode.ORBITAL;
-                        smartAss.target = MechJebModuleSmartASS.Target.RETROGRADE;
-                    }
-                }
-            }
-
-            // 2. Redundância: Ativa também o SAS nativo do KSP se suportado pela cápsula
-            telemetry.Vessel.ActionGroups.SetGroup(KSPActionGroup.SAS, true);
-            if (telemetry.Vessel.Autopilot != null && telemetry.Vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.Retrograde))
-            {
-                telemetry.Vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.Retrograde);
             }
         }
 
         /// <summary>
-        /// Desativa o controle autônomo e devolve os comandos manuais ao jogador.
+        /// Devolve o controle manual ao jogador e reativa o SAS nativo.
         /// </summary>
         private void ReleaseControl(TelemetryReader telemetry)
         {
@@ -143,18 +130,15 @@ namespace Artemis.Flight
                 {
                     attitude.attitudeDeactivate();
                 }
-
-                var smartAss = telemetry.MechJeb.GetComputerModule<MechJebModuleSmartASS>();
-                if (smartAss != null)
-                {
-                    smartAss.Engage(false);
-                    smartAss.target = MechJebModuleSmartASS.Target.OFF;
-                }
             }
 
-            if (telemetry.Vessel != null && telemetry.Vessel.Autopilot != null)
+            if (telemetry.Vessel != null)
             {
-                telemetry.Vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.StabilityAssist);
+                telemetry.Vessel.ActionGroups.SetGroup(KSPActionGroup.SAS, true);
+                if (telemetry.Vessel.Autopilot != null)
+                {
+                    telemetry.Vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.StabilityAssist);
+                }
             }
         }
     }

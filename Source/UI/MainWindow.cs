@@ -83,7 +83,7 @@ namespace Artemis.UI
             _headingInput = GUILayout.TextField(_headingInput);
             GUILayout.EndHorizontal();
 
-            GUILayout.Label("<color=#aaaaaa>Roll travado em 90° (Janelas para cima)</color>");
+            GUILayout.Label("<color=#aaaaaa>Roll travado em 0°</color>");
             GUILayout.Space(6);
 
             // Botão Iniciar / Abortar

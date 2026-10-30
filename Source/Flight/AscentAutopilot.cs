@@ -13,7 +13,7 @@ namespace Artemis.Flight
     {
         Idle,               // Desligado
         VerticalClimb,      // Subida vertical inicial
-        GravityTurn,        // Curva gravitacional com Pitch progressivo e Roll de 90°
+        GravityTurn,        // Curva gravitacional com Pitch progressivo e Roll 0°
         CoastingToSpace,    // Motores desligados, subindo por inércia até o vácuo
         Circularization,    // Queima em prograde no apoastro para fechar a órbita
         Complete            // Órbita estável alcançada com sucesso
@@ -22,8 +22,8 @@ namespace Artemis.Flight
     /// <summary>
     /// AscentAutopilot: Controla o voo autônomo desde o chão até a órbita completa.
     /// Executa:
-    /// 1. Subida vertical e giro para 90° de Roll (janelas voltadas para cima).
-    /// 2. Curva em direção ao azimute escolhido com inclinação agressiva para ganho de velocidade orbital.
+    /// 1. Subida vertical inicial rápida com Roll em 0°.
+    /// 2. Curva gravitacional acentuada em direção ao azimute alvo (ex: 90° Leste).
     /// 3. Corte exato no Apoastro alvo.
     /// 4. Queima de circularização no Apoastro.
     /// </summary>
@@ -32,7 +32,7 @@ namespace Artemis.Flight
         // Parâmetros configuráveis pelo usuário
         public double TargetApoapsis = 80000.0;     // 80 km padrão
         public double TargetHeading = 90.0;         // 90° = Leste
-        public double TargetRoll = 90.0;            // 90° = Janelas para cima
+        public double TargetRoll = 0.0;             // Roll travado em 0°
 
         public AscentPhase CurrentPhase { get; private set; } = AscentPhase.Idle;
         public bool IsActive => CurrentPhase != AscentPhase.Idle && CurrentPhase != AscentPhase.Complete;
@@ -91,16 +91,17 @@ namespace Artemis.Flight
         }
 
         /// <summary>
-        /// Fase 1: Sobe reto até ganhar altitude de controle (~1.000m) e velocidade (~70m/s).
+        /// Fase 1: Sobe reto apenas para livrar a torre de lançamento (~500m ou 50m/s).
         /// </summary>
         private void HandleVerticalClimb(TelemetryReader telemetry)
         {
             _commandedThrottle = 1.0f;
-            SetAttitude(telemetry, TargetHeading, 90.0, TargetRoll); // Pitch 90° (para cima), Roll 90°
+            SetAttitude(telemetry, TargetHeading, 90.0, TargetRoll);
 
-            StatusMessage = "Subida Vertical: Ganhando velocidade...";
+            StatusMessage = "Subida Vertical: Livrando a plataforma...";
 
-            if (telemetry.AltitudeASL >= 1000.0 || telemetry.SurfaceSpeed >= 70.0)
+            // Inicia a curva bem cedo para não subir "em pé"
+            if (telemetry.AltitudeASL >= 500.0 || telemetry.SurfaceSpeed >= 50.0)
             {
                 CurrentPhase = AscentPhase.GravityTurn;
                 StatusMessage = "Iniciando Curva Gravitacional...";
@@ -108,28 +109,28 @@ namespace Artemis.Flight
         }
 
         /// <summary>
-        /// Fase 2: Inclina progressivamente com curva otimizada de potência.
-        /// Atinge ~50° de pitch a 10km e ~25° a 25km, acelerando forte horizontalmente.
-        /// Mantém sempre o Roll travado em 90°.
+        /// Fase 2: Inclina progressivamente em direção ao horizonte.
+        /// Aos 1.000m: pitch ~84°
+        /// Aos 5.000m: pitch ~67°
+        /// Aos 10.000m: pitch ~54°
+        /// Aos 20.000m: pitch ~35°
+        /// Aos 35.000m: pitch ~15°
+        /// Acima de 45.000m: pitch ~0° (horizontal)
         /// </summary>
         private void HandleGravityTurn(TelemetryReader telemetry)
         {
             double alt = telemetry.AltitudeASL;
-            double turnStart = 1000.0;
-            double turnEnd = 48000.0;
+            double turnStart = 500.0;
+            double turnEnd = 45000.0;
 
-            // Fração linear de subida de 0.0 a 1.0
-            double linearFraction = Mathf.Clamp01((float)((alt - turnStart) / (turnEnd - turnStart)));
-            
-            // Curva de potência (expoente 0.55): curva mais cedo e mais pronunciada (aumentando a inclinação)
-            double progress = Math.Pow(linearFraction, 0.55);
-
-            // Inclina o Pitch de 90° (vertical) para 5° (quase horizontal)
-            double pitch = 90.0 - (progress * 85.0);
+            double linear = Mathf.Clamp01((float)((alt - turnStart) / (turnEnd - turnStart)));
+            double progress = Math.Pow(linear, 0.6);
+            double pitch = 90.0 - (progress * 90.0);
+            pitch = Math.Max(0.0, pitch);
 
             SetAttitude(telemetry, TargetHeading, pitch, TargetRoll);
 
-            // Controle do acelerador: desacelera suavemente perto do apoastro alvo para não ultrapassar
+            // Controle do acelerador perto do apoastro alvo
             double apError = TargetApoapsis - telemetry.Apoapsis;
             if (apError <= 0)
             {
@@ -140,9 +141,9 @@ namespace Artemis.Flight
             }
             else if (apError < 3000.0)
             {
-                // Estrangula o motor suavemente perto do corte
+                // Estrangulamento suave para não passar do apoastro desejado
                 _commandedThrottle = Mathf.Clamp01((float)(apError / 3000.0));
-                StatusMessage = $"Aproximando do corte do motor: Ap {telemetry.Apoapsis/1000:F1}km";
+                StatusMessage = $"Aproximando do corte: Pitch {pitch:F0}° | Ap {telemetry.Apoapsis/1000:F1}km";
             }
             else
             {
@@ -158,13 +159,12 @@ namespace Artemis.Flight
         {
             _commandedThrottle = 0f;
 
-            // Mantém a nave apontada na direção horizontal (prograde) preparando a queima
+            // Mantém a nave apontada na horizontal (prograde)
             SetAttitude(telemetry, TargetHeading, 0.0, TargetRoll);
 
             double timeToAp = telemetry.TimeToApoapsis;
             StatusMessage = $"Planando até o Apoastro ({timeToAp:F0}s restantes)...";
 
-            // Inicia a queima quando estiver a menos de 15 segundos do Apoastro e fora da atmosfera
             if (!telemetry.IsInAtmosphere && timeToAp <= 15.0 && timeToAp > 0)
             {
                 CurrentPhase = AscentPhase.Circularization;
@@ -192,7 +192,6 @@ namespace Artemis.Flight
             }
             else if (peError < 5000.0)
             {
-                // Aceleração fina no final
                 _commandedThrottle = Mathf.Clamp((float)(peError / 5000.0), 0.1f, 1.0f);
                 StatusMessage = $"Ajuste fino de órbita: Pe {telemetry.Periapsis/1000:F1}km";
             }
@@ -204,25 +203,43 @@ namespace Artemis.Flight
         }
 
         /// <summary>
-        /// Comanda a atitude da nave utilizando o controlador nativo do MechJeb.
+        /// Comanda a atitude da nave utilizando o controlador do MechJeb.
+        /// Desliga o SAS nativo do KSP para evitar conflitos de controle que travam a nave em pé.
         /// </summary>
         private void SetAttitude(TelemetryReader telemetry, double heading, double pitch, double roll)
         {
-            if (telemetry.MechJeb == null) return;
-            var attitude = telemetry.MechJeb.GetComputerModule<MechJebModuleAttitudeController>();
-            if (attitude != null)
+            if (telemetry.Vessel == null) return;
+
+            // Desativa o SAS do jogo para permitir que o MechJeb incline livremente a nave
+            if (telemetry.Vessel.ActionGroups[KSPActionGroup.SAS])
             {
-                attitude.attitudeTo(heading, pitch, roll, this);
+                telemetry.Vessel.ActionGroups.SetGroup(KSPActionGroup.SAS, false);
+            }
+
+            if (telemetry.MechJeb != null)
+            {
+                var attitude = telemetry.MechJeb.GetComputerModule<MechJebModuleAttitudeController>();
+                if (attitude != null)
+                {
+                    attitude.attitudeTo(heading, pitch, roll, this);
+                }
             }
         }
 
         private void ReleaseAttitude(TelemetryReader telemetry)
         {
-            if (telemetry.MechJeb == null) return;
-            var attitude = telemetry.MechJeb.GetComputerModule<MechJebModuleAttitudeController>();
-            if (attitude != null)
+            if (telemetry.MechJeb != null)
             {
-                attitude.attitudeDeactivate();
+                var attitude = telemetry.MechJeb.GetComputerModule<MechJebModuleAttitudeController>();
+                if (attitude != null)
+                {
+                    attitude.attitudeDeactivate();
+                }
+            }
+
+            if (telemetry.Vessel != null)
+            {
+                telemetry.Vessel.ActionGroups.SetGroup(KSPActionGroup.SAS, true);
             }
         }
     }

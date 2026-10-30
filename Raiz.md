@@ -16,7 +16,7 @@ Criar um piloto automático / assistente de navegação para o jogo **KSP (Kerba
 ### 1. Módulo de Decolagem e Inserção Orbital
 * **Altitude Alvo:** Campo na interface para digitar a altitude desejada do apoastro (ex: 80.000m / 80km).
 * **Direção da Curva Gravitacional (Azimute):** Ângulo de 0° a 359° (padrão 90° = Leste).
-* **Programa de Roll:** Manter ângulo de Roll travado em 90° (posiciona as janelas da cabine viradas para cima por estética e orientação).
+* **Programa de Roll:** Manter ângulo de Roll travado em 0°.
 * **Curva de Subida:** Subida vertical inicial seguida de pitch gradativo na direção do azimute escolhido.
 * **Auto-Staging:** Monitorar os motores em queima. Detectar esgotamento de combustível (flameout), desacoplar o estágio vazio e acionar o próximo estágio automaticamente.
 * **Transição Atmosférica (75 km):** Ao sair da atmosfera (Kerbin > 75km), acionar e liberar automaticamente:
