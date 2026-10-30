@@ -93,7 +93,7 @@ Essa curva de potência garante que a nave comece subindo em pé para atravessar
 oraculo_2/
 ├── Artemis.csproj                 # Configuração do projeto .NET Framework 4.8
 ├── build.sh                       # Script de compilação e deploy automático no KSP
-├── Raiz.md                        # Documento arquitetural e requisitos do projeto
+├── Guia.md                        # Documento arquitetural e requisitos do projeto
 ├── README.md                      # Esta documentação completa
 ├── GameData/
 │   └── Artemis/
