@@ -6,23 +6,25 @@ using Artemis.Telemetry;
 namespace Artemis.Systems
 {
     /// <summary>
-    /// DeployableManager: Gerencia o acionamento de partes móveis ao sair da atmosfera.
-    /// Regra solicitada: Ao passar de 75.000m (vácuo de Kerbin), estende painéis solares,
-    /// antenas, radiadores e ejeta as coifas aerodinâmicas (fairings).
+    /// DeployableManager: Gerencia o acionamento de partes móveis ao entrar e sair da atmosfera.
+    /// Regras:
+    /// - Ao passar dos 75.000m (vácuo): estende painéis solares, antenas, radiadores e ejeta as coifas.
+    /// - Ao cair abaixo dos 70.000m (reentrada): recolhe painéis, antenas e radiadores para proteção térmica/aerodinâmica.
     /// </summary>
     public class DeployableManager
     {
-        private const double DEPLOY_ALTITUDE = 75000.0; // 75 km
-        private bool _alreadyDeployed = false;
+        private const double DEPLOY_ALTITUDE = 75000.0;  // 75 km (abre instrumentos)
+        private const double RETRACT_ALTITUDE = 70000.0; // 70 km (recolhe instrumentos)
 
-        public bool IsDeployed => _alreadyDeployed;
+        private bool _isExtendedInSpace = false;
+        private bool _fairingsJettisoned = false;
 
-        /// <summary>
-        /// Reinicia o gatilho (útil para novas decolagens).
-        /// </summary>
+        public bool IsDeployed => _isExtendedInSpace;
+
         public void Reset()
         {
-            _alreadyDeployed = false;
+            _isExtendedInSpace = false;
+            _fairingsJettisoned = false;
         }
 
         /// <summary>
@@ -30,64 +32,81 @@ namespace Artemis.Systems
         /// </summary>
         public void Update(TelemetryReader telemetry)
         {
-            if (_alreadyDeployed || telemetry.Vessel == null) return;
+            if (telemetry.Vessel == null) return;
 
-            // Dispara apenas quando ultrapassa a marca dos 75km
-            if (telemetry.AltitudeASL >= DEPLOY_ALTITUDE)
+            double alt = telemetry.AltitudeASL;
+
+            // 1. Acima de 75km: Abre tudo e ejeta coifas no vácuo
+            if (alt >= DEPLOY_ALTITUDE && !_isExtendedInSpace)
             {
-                DeployAll(telemetry.Vessel);
-                _alreadyDeployed = true;
+                ExtendAllDeployables(telemetry.Vessel);
+                if (!_fairingsJettisoned)
+                {
+                    JettisonFairings(telemetry.Vessel);
+                    _fairingsJettisoned = true;
+                }
+                _isExtendedInSpace = true;
+            }
+            // 2. Abaixo de 70km (caindo na atmosfera): Recolhe tudo para não quebrar pelo calor e atrito
+            else if (alt < RETRACT_ALTITUDE && _isExtendedInSpace)
+            {
+                RetractAllDeployables(telemetry.Vessel);
+                _isExtendedInSpace = false;
             }
         }
 
-        /// <summary>
-        /// Percorre a nave estendendo todos os equipamentos e soltando coifas.
-        /// </summary>
-        public void DeployAll(Vessel vessel)
+        public void ExtendAllDeployables(Vessel vessel)
         {
             if (vessel == null) return;
 
-            int panelsCount = 0;
-            int antennasCount = 0;
-            int radiatorsCount = 0;
-            int fairingsCount = 0;
-
-            // 1. Painéis Solares
-            var panels = vessel.FindPartModulesImplementing<ModuleDeployableSolarPanel>();
-            for (int i = 0; i < panels.Count; i++)
+            int count = 0;
+            var parts = vessel.FindPartModulesImplementing<ModuleDeployablePart>();
+            for (int i = 0; i < parts.Count; i++)
             {
-                panels[i].Extend();
-                panelsCount++;
+                parts[i].Extend();
+                count++;
             }
 
-            // 2. Antenas de Comunicação
-            var antennas = vessel.FindPartModulesImplementing<ModuleDeployableAntenna>();
-            for (int i = 0; i < antennas.Count; i++)
+            string msg = $"[Artemis] Altitude > 75km: {count} instrumentos estendidos no vácuo!";
+            ScreenMessages.PostScreenMessage(msg, 5f, ScreenMessageStyle.UPPER_CENTER);
+            Debug.Log(msg);
+        }
+
+        public void RetractAllDeployables(Vessel vessel)
+        {
+            if (vessel == null) return;
+
+            int count = 0;
+            var parts = vessel.FindPartModulesImplementing<ModuleDeployablePart>();
+            for (int i = 0; i < parts.Count; i++)
             {
-                antennas[i].Extend();
-                antennasCount++;
+                // Só recolhe se for do tipo retrátil
+                if (parts[i].retractable)
+                {
+                    parts[i].Retract();
+                    count++;
+                }
             }
 
-            // 3. Radiadores Térmicos
-            var radiators = vessel.FindPartModulesImplementing<ModuleDeployableRadiator>();
-            for (int i = 0; i < radiators.Count; i++)
-            {
-                radiators[i].Extend();
-                radiatorsCount++;
-            }
+            string msg = $"[Artemis] Altitude < 70km: Recolhendo {count} peças para proteção térmica/aerodinâmica!";
+            ScreenMessages.PostScreenMessage(msg, 5f, ScreenMessageStyle.UPPER_CENTER);
+            Debug.Log(msg);
+        }
 
-            // 4. Coifas Protetoras (Procedural Fairings)
+        private void JettisonFairings(Vessel vessel)
+        {
+            if (vessel == null) return;
+
             var fairings = vessel.FindPartModulesImplementing<ModuleProceduralFairing>();
             for (int i = 0; i < fairings.Count; i++)
             {
                 fairings[i].DeployFairing();
-                fairingsCount++;
             }
 
-            // Notificação visual na tela do KSP
-            string msg = $"[Artemis] Altitude > 75km: Liberados {panelsCount} painéis, {antennasCount} antenas, {radiatorsCount} radiadores e {fairingsCount} coifas.";
-            ScreenMessages.PostScreenMessage(msg, 5f, ScreenMessageStyle.UPPER_CENTER);
-            Debug.Log(msg);
+            if (fairings.Count > 0)
+            {
+                ScreenMessages.PostScreenMessage($"[Artemis] {fairings.Count} Coifas protetoras ejetadas!", 4f, ScreenMessageStyle.UPPER_CENTER);
+            }
         }
     }
 }

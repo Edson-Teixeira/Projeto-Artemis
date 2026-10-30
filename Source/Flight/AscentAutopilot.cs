@@ -13,7 +13,7 @@ namespace Artemis.Flight
     {
         Idle,               // Desligado
         VerticalClimb,      // Subida vertical inicial
-        GravityTurn,        // Curva gravitacional com Pitch e Roll de 45°
+        GravityTurn,        // Curva gravitacional com Pitch progressivo e Roll de 90°
         CoastingToSpace,    // Motores desligados, subindo por inércia até o vácuo
         Circularization,    // Queima em prograde no apoastro para fechar a órbita
         Complete            // Órbita estável alcançada com sucesso
@@ -22,8 +22,8 @@ namespace Artemis.Flight
     /// <summary>
     /// AscentAutopilot: Controla o voo autônomo desde o chão até a órbita completa.
     /// Executa:
-    /// 1. Subida vertical e giro para 45° de Roll.
-    /// 2. Curva em direção ao azimute escolhido (padrão 90° Leste).
+    /// 1. Subida vertical e giro para 90° de Roll (janelas voltadas para cima).
+    /// 2. Curva em direção ao azimute escolhido com inclinação agressiva para ganho de velocidade orbital.
     /// 3. Corte exato no Apoastro alvo.
     /// 4. Queima de circularização no Apoastro.
     /// </summary>
@@ -32,7 +32,7 @@ namespace Artemis.Flight
         // Parâmetros configuráveis pelo usuário
         public double TargetApoapsis = 80000.0;     // 80 km padrão
         public double TargetHeading = 90.0;         // 90° = Leste
-        public double TargetRoll = 45.0;            // 45° = Janelas para cima
+        public double TargetRoll = 90.0;            // 90° = Janelas para cima
 
         public AscentPhase CurrentPhase { get; private set; } = AscentPhase.Idle;
         public bool IsActive => CurrentPhase != AscentPhase.Idle && CurrentPhase != AscentPhase.Complete;
@@ -91,16 +91,16 @@ namespace Artemis.Flight
         }
 
         /// <summary>
-        /// Fase 1: Sobe reto até ganhar altitude de segurança (~1.500m) e velocidade (~100m/s).
+        /// Fase 1: Sobe reto até ganhar altitude de controle (~1.000m) e velocidade (~70m/s).
         /// </summary>
         private void HandleVerticalClimb(TelemetryReader telemetry)
         {
             _commandedThrottle = 1.0f;
-            SetAttitude(telemetry, TargetHeading, 90.0, TargetRoll); // Pitch 90° (para cima), Roll 45°
+            SetAttitude(telemetry, TargetHeading, 90.0, TargetRoll); // Pitch 90° (para cima), Roll 90°
 
             StatusMessage = "Subida Vertical: Ganhando velocidade...";
 
-            if (telemetry.AltitudeASL >= 1500.0 || telemetry.SurfaceSpeed >= 100.0)
+            if (telemetry.AltitudeASL >= 1000.0 || telemetry.SurfaceSpeed >= 70.0)
             {
                 CurrentPhase = AscentPhase.GravityTurn;
                 StatusMessage = "Iniciando Curva Gravitacional...";
@@ -108,24 +108,28 @@ namespace Artemis.Flight
         }
 
         /// <summary>
-        /// Fase 2: Inclina suavemente de 90° para 0° conforme a altitude sobe em direção aos 55km.
-        /// Mantém sempre o Roll travado em 45°.
+        /// Fase 2: Inclina progressivamente com curva otimizada de potência.
+        /// Atinge ~50° de pitch a 10km e ~25° a 25km, acelerando forte horizontalmente.
+        /// Mantém sempre o Roll travado em 90°.
         /// </summary>
         private void HandleGravityTurn(TelemetryReader telemetry)
         {
             double alt = telemetry.AltitudeASL;
-            double turnStart = 1500.0;
-            double turnEnd = 55000.0;
+            double turnStart = 1000.0;
+            double turnEnd = 48000.0;
 
-            // Fração de progresso da curva de 0.0 (início) a 1.0 (fim)
-            double progress = Mathf.Clamp01((float)((alt - turnStart) / (turnEnd - turnStart)));
+            // Fração linear de subida de 0.0 a 1.0
+            double linearFraction = Mathf.Clamp01((float)((alt - turnStart) / (turnEnd - turnStart)));
             
+            // Curva de potência (expoente 0.55): curva mais cedo e mais pronunciada (aumentando a inclinação)
+            double progress = Math.Pow(linearFraction, 0.55);
+
             // Inclina o Pitch de 90° (vertical) para 5° (quase horizontal)
             double pitch = 90.0 - (progress * 85.0);
 
             SetAttitude(telemetry, TargetHeading, pitch, TargetRoll);
 
-            // Controle do acelerador: desacelera perto do apoastro alvo para não ultrapassar
+            // Controle do acelerador: desacelera suavemente perto do apoastro alvo para não ultrapassar
             double apError = TargetApoapsis - telemetry.Apoapsis;
             if (apError <= 0)
             {

@@ -65,13 +65,16 @@ namespace Artemis
             // 1. Atualiza sensores e telemetria
             _telemetry.UpdateVessel(FlightGlobals.ActiveVessel);
 
-            // 2. Roda a física da decolagem (se ativa)
+            // 2. Gerenciador de partes retráteis (roda sempre: >75km abre / <70km recolhe tudo)
+            _deployableManager.Update(_telemetry);
+
+            // 3. Roda a física da decolagem (se ativa)
             if (_ascent.IsActive)
             {
                 _ascent.Update(_telemetry, _autoStaging, _deployableManager);
             }
 
-            // 3. Roda a física da reentrada (se ativa)
+            // 4. Roda a física da reentrada (se ativa)
             if (_reentry.IsActive)
             {
                 _reentry.Update(_telemetry, _parachuteManager);

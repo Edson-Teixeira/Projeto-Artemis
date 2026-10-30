@@ -17,8 +17,8 @@ namespace Artemis.Flight
 
     /// <summary>
     /// ReentryAutopilot: Gerencia a reentrada segura na atmosfera.
-    /// Trava a nave no vetor Retrograde, protege os sistemas e aciona
-    /// sequencialmente os paraquedas até o toque no solo ou mar.
+    /// Trava a nave no vetor Retrograde utilizando o piloto de atitude do MechJeb (que não depende de nível de piloto),
+    /// protege os sistemas e aciona sequencialmente os paraquedas até o toque no solo ou mar.
     /// </summary>
     public class ReentryAutopilot
     {
@@ -29,9 +29,8 @@ namespace Artemis.Flight
         public void StartReentry(TelemetryReader telemetry)
         {
             CurrentPhase = ReentryPhase.HoldingRetrograde;
-            StatusMessage = "Travando no vetor Retrograde...";
+            StatusMessage = "Virando traseira para Retrograde (Escudo Térmico)...";
 
-            // Ativa o SAS e orienta para o vetor retrógrado (escudo térmico contra o vento)
             LockRetrograde(telemetry);
 
             ScreenMessages.PostScreenMessage("[Artemis] Reentrada iniciada: Orientando escudo em Retrograde!", 5f, ScreenMessageStyle.UPPER_CENTER);
@@ -51,7 +50,7 @@ namespace Artemis.Flight
         {
             if (!IsActive || telemetry.Vessel == null) return;
 
-            // Mantém sempre o SAS travado em Retrograde durante a queda
+            // Mantém ativamente o comando de atitude em Retrograde
             LockRetrograde(telemetry);
 
             // Verifica se tocou no solo ou água
@@ -84,11 +83,47 @@ namespace Artemis.Flight
             }
         }
 
+        /// <summary>
+        /// Comanda o piloto do MechJeb a virar a nave para o vetor Retrógrado (traseira contra o vento).
+        /// </summary>
         private void LockRetrograde(TelemetryReader telemetry)
         {
             if (telemetry.Vessel == null) return;
 
-            // Ativa o SAS nativo do KSP e define para Retrograde
+            // 1. Comando direto via MechJeb AttitudeController (independente de nível de piloto do KSP)
+            if (telemetry.MechJeb != null)
+            {
+                var attitude = telemetry.MechJeb.GetComputerModule<MechJebModuleAttitudeController>();
+                if (attitude != null)
+                {
+                    // Na atmosfera usa o vetor de superfície (vento aerodinâmico real)
+                    // No vácuo usa o vetor orbital
+                    AttitudeReference reference = telemetry.IsInAtmosphere 
+                        ? AttitudeReference.SURFACE_VELOCITY 
+                        : AttitudeReference.ORBIT;
+
+                    attitude.attitudeTo(Vector3d.back, reference, this, false);
+                }
+
+                // Configura também o SmartASS do MechJeb para garantir orientação contínua
+                var smartAss = telemetry.MechJeb.GetComputerModule<MechJebModuleSmartASS>();
+                if (smartAss != null)
+                {
+                    smartAss.Engage(true);
+                    if (telemetry.IsInAtmosphere)
+                    {
+                        smartAss.mode = MechJebModuleSmartASS.Mode.SURFACE;
+                        smartAss.target = MechJebModuleSmartASS.Target.SURFACE_RETROGRADE;
+                    }
+                    else
+                    {
+                        smartAss.mode = MechJebModuleSmartASS.Mode.ORBITAL;
+                        smartAss.target = MechJebModuleSmartASS.Target.RETROGRADE;
+                    }
+                }
+            }
+
+            // 2. Redundância: Ativa também o SAS nativo do KSP se suportado pela cápsula
             telemetry.Vessel.ActionGroups.SetGroup(KSPActionGroup.SAS, true);
             if (telemetry.Vessel.Autopilot != null && telemetry.Vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.Retrograde))
             {
@@ -96,8 +131,27 @@ namespace Artemis.Flight
             }
         }
 
+        /// <summary>
+        /// Desativa o controle autônomo e devolve os comandos manuais ao jogador.
+        /// </summary>
         private void ReleaseControl(TelemetryReader telemetry)
         {
+            if (telemetry.MechJeb != null)
+            {
+                var attitude = telemetry.MechJeb.GetComputerModule<MechJebModuleAttitudeController>();
+                if (attitude != null)
+                {
+                    attitude.attitudeDeactivate();
+                }
+
+                var smartAss = telemetry.MechJeb.GetComputerModule<MechJebModuleSmartASS>();
+                if (smartAss != null)
+                {
+                    smartAss.Engage(false);
+                    smartAss.target = MechJebModuleSmartASS.Target.OFF;
+                }
+            }
+
             if (telemetry.Vessel != null && telemetry.Vessel.Autopilot != null)
             {
                 telemetry.Vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.StabilityAssist);
