@@ -11,7 +11,7 @@ namespace Artemis.Flight
     {
         Idle,               // Desligado
         Ascent,             // Lançamento com curva balística íngreme até atingir Apoastro de 75km
-        CoastingToSpace,    // Motores cortados, cruza 70km (validação turística no vácuo e descarte de combustível vazio)
+        CoastingToSpace,    // Motores cortados, cruza 70km, libera o booster no vácuo e prepara reentrada
         Reentry,            // Reentrada ativa no modo Lander (Retrograde Roll 0° e Paraquedas)
         Completed           // Missão concluída com pouso suave
     }
@@ -21,7 +21,7 @@ namespace Artemis.Flight
     /// Unifica o lançamento em arco balístico com o retorno no modo Lander:
     /// 1. Decola e executa curva gravitacional íngreme (inclinando suavemente até ~58° a Leste).
     /// 2. Corta motores ao atingir 75km de Apoastro.
-    /// 3. Ao chegar no espaço (>= 70km), verifica se o estágio de combustível está vazio e o desacopla.
+    /// 3. Ao chegar no espaço (>= 70km), desacopla OBRIGATORIAMENTE o booster usado na subida.
     /// 4. Transiciona automaticamente para Reentrada Lander (Retrograde com Roll 0° e paraquedas escalonados).
     /// </summary>
     public class SuborbitalTourismController
@@ -34,13 +34,13 @@ namespace Artemis.Flight
         public float CommandedThrottle => _commandedThrottle;
 
         private const double TARGET_APOAPSIS = 75000.0; // 75 km
-        private bool _spaceFuelJettisonDone = false;
+        private bool _boosterReleased = false;
 
         public void StartMission()
         {
             CurrentPhase = SuborbitalTourismPhase.Ascent;
             _commandedThrottle = 1.0f;
-            _spaceFuelJettisonDone = false;
+            _boosterReleased = false;
             StatusMessage = "Missão iniciada: Decolando com subida íngreme em arco...";
             ScreenMessages.PostScreenMessage("[Artemis] Missão Turismo Suborbital Iniciada!", 5f, ScreenMessageStyle.UPPER_CENTER);
         }
@@ -49,7 +49,7 @@ namespace Artemis.Flight
         {
             CurrentPhase = SuborbitalTourismPhase.Idle;
             _commandedThrottle = 0f;
-            _spaceFuelJettisonDone = false;
+            _boosterReleased = false;
             StatusMessage = "Missão abortada pelo jogador.";
             ReleaseAttitude(telemetry);
             if (reentry != null && reentry.IsActive)
@@ -122,26 +122,21 @@ namespace Artemis.Flight
 
         /// <summary>
         /// Fase 2: Planando acima de 70km (validação turística no vácuo).
-        /// Verifica se o módulo de combustível esgotou e o desacopla.
+        /// Desacopla o booster de subida e prepara a atitude em Retrograde para reentrada estável.
         /// </summary>
         private void HandleCoasting(TelemetryReader telemetry, ReentryAutopilot reentry)
         {
             _commandedThrottle = 0f;
 
-            // No vácuo, já orienta o escudo para Retrograde com Roll em 0°
-            reentry.LockRetrograde(telemetry);
-
-            // Verificação solicitada: ao chegar no espaço (>= 70km), se o combustível acabou, libera o módulo!
-            if (telemetry.AltitudeASL >= 70000.0 && !_spaceFuelJettisonDone)
+            // Desacopla o booster assim que cruzar a fronteira do espaço (>= 70km)
+            if (telemetry.AltitudeASL >= 70000.0 && !_boosterReleased)
             {
-                _spaceFuelJettisonDone = true;
-                if (TelemetryReader.IsCurrentFuelEmpty(telemetry.Vessel) && StageManager.CurrentStage > 0)
-                {
-                    Debug.Log("[Artemis Turismo] Módulo de combustível vazio detectado no espaço. Desacoplando!");
-                    ScreenMessages.PostScreenMessage("[Artemis] Chegamos ao espaço: Módulo de combustível vazio liberado!", 5f, ScreenMessageStyle.UPPER_CENTER);
-                    StageManager.ActivateNextStage();
-                }
+                _boosterReleased = true;
+                ReleaseBooster(telemetry);
             }
+
+            // No vácuo, orienta o escudo para Retrograde com Roll em 0°
+            reentry.LockRetrograde(telemetry);
 
             if (!telemetry.IsInAtmosphere)
             {
@@ -155,6 +150,13 @@ namespace Artemis.Flight
             // Dispara a reentrada assim que passar do topo (velocidade vertical negativa)
             if (telemetry.VerticalSpeed < 0 || (telemetry.AltitudeASL < 70000.0 && telemetry.VerticalSpeed < -5.0))
             {
+                // Garante que o booster foi solto antes de iniciar a queda
+                if (!_boosterReleased)
+                {
+                    _boosterReleased = true;
+                    ReleaseBooster(telemetry);
+                }
+
                 CurrentPhase = SuborbitalTourismPhase.Reentry;
                 reentry.StartReentry(telemetry);
                 StatusMessage = "Iniciando descida: Ativando módulo de Lander (Retrograde)...";
@@ -183,6 +185,45 @@ namespace Artemis.Flight
             }
 
             StatusMessage = $"Descida Lander: {reentry.StatusMessage}";
+        }
+
+        /// <summary>
+        /// Desacopla o booster de subida utilizado para levar a cápsula ao espaço.
+        /// Aciona tanto o StageManager quanto qualquer desacoplador ainda acoplado.
+        /// </summary>
+        private void ReleaseBooster(TelemetryReader telemetry)
+        {
+            if (telemetry.Vessel == null) return;
+
+            _commandedThrottle = 0f;
+
+            Debug.Log("[Artemis Turismo] Desacoplando booster de lançamento no espaço!");
+            ScreenMessages.PostScreenMessage("[Artemis Turismo] Desacoplando Booster de Subida no Espaço!", 5f, ScreenMessageStyle.UPPER_CENTER);
+
+            // 1. Aciona o estágio no StageManager se houver estágios anteriores (CurrentStage > 0)
+            if (StageManager.CurrentStage > 0)
+            {
+                StageManager.ActivateNextStage();
+            }
+
+            // 2. Aciona diretamente todos os desacopladores ainda presos na nave
+            var decouplers = telemetry.Vessel.FindPartModulesImplementing<ModuleDecouple>();
+            for (int i = 0; i < decouplers.Count; i++)
+            {
+                if (!decouplers[i].isDecoupled)
+                {
+                    decouplers[i].Decouple();
+                }
+            }
+
+            var anchoredDecouplers = telemetry.Vessel.FindPartModulesImplementing<ModuleAnchoredDecoupler>();
+            for (int i = 0; i < anchoredDecouplers.Count; i++)
+            {
+                if (!anchoredDecouplers[i].isDecoupled)
+                {
+                    anchoredDecouplers[i].Decouple();
+                }
+            }
         }
 
         private void SetAttitude(TelemetryReader telemetry, double heading, double pitch, double roll)

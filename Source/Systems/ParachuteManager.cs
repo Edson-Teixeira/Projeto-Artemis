@@ -6,10 +6,11 @@ using Artemis.Telemetry;
 namespace Artemis.Systems
 {
     /// <summary>
-    /// ParachuteManager: Gerencia a abertura escalonada e segura dos paraquedas.
-    /// Regra solicitada:
-    /// 1º: Abre os paraquedas Drogue (frenagem rápida, como MK-12) assim que for seguro.
-    /// 2º: Abre os paraquedas principais (Main Chutes) em menor altitude para pouso final.
+    /// ParachuteManager: Gerencia a abertura escalonada e 100% segura dos paraquedas.
+    /// Regras:
+    /// 1º: Se houver paraquedas Drogue (MK-12 / de arrasto), abre em alta velocidade na atmosfera (<= 25km).
+    /// 2º: Abre os paraquedas Principais em baixa altitude (<= 2.500m) INDEPENDENTE de ter drogues ou não.
+    /// 3º: Trava de emergência: abaixo de 1.200m / 1.000m do relevo, força a abertura de QUALQUER paraquedas guardado.
     /// </summary>
     public class ParachuteManager
     {
@@ -32,51 +33,83 @@ namespace Artemis.Systems
         {
             if (telemetry.Vessel == null) return;
 
-            // Só atuamos se a nave estiver descendo (velocidade vertical negativa)
+            // Só atuamos se a nave estiver caindo (velocidade vertical negativa)
             if (telemetry.VerticalSpeed >= 0) return;
 
-            // Fase 1: Drogue Chutes (MK-12 e equivalentes)
-            if (!_droguesDeployed)
+            // Altitude verdadeira em relação ao solo ou mar (o que for mais próximo)
+            double trueAltitude = Math.Min(telemetry.Vessel.radarAltitude, telemetry.AltitudeASL);
+
+            var chutes = telemetry.Vessel.FindPartModulesImplementing<ModuleParachute>();
+            if (chutes.Count == 0) return;
+
+            // Verifica se a nave possui paraquedas Drogue (MK-12) instalados
+            bool hasDrogues = false;
+            for (int i = 0; i < chutes.Count; i++)
             {
-                if (TryDeployDrogues(telemetry.Vessel))
+                if (IsDrogue(chutes[i]))
                 {
-                    _droguesDeployed = true;
-                    ScreenMessages.PostScreenMessage("[Artemis] Paraquedas Drogue (MK-12) armados com segurança!", 4f, ScreenMessageStyle.UPPER_CENTER);
+                    hasDrogues = true;
+                    break;
                 }
             }
 
-            // Fase 2: Main Chutes (Abaixo de 2.000m de altitude verdadeira / segura)
-            if (_droguesDeployed && !_mainsDeployed)
+            // FASE 1: Drogue Chutes (MK-12 e equivalentes de alta velocidade)
+            if (hasDrogues && !_droguesDeployed && trueAltitude <= 25000.0)
             {
-                double currentAltitude = telemetry.AltitudeASL;
-                // Se a altitude estiver abaixo de 2.500m, tenta abrir os principais
-                if (currentAltitude <= 2500.0)
+                if (TryDeployDrogues(chutes))
                 {
-                    if (TryDeployMains(telemetry.Vessel))
-                    {
-                        _mainsDeployed = true;
-                        ScreenMessages.PostScreenMessage("[Artemis] Paraquedas Principais abertos para pouso!", 4f, ScreenMessageStyle.UPPER_CENTER);
-                    }
+                    _droguesDeployed = true;
+                    ScreenMessages.PostScreenMessage("[Artemis] Paraquedas Drogue (MK-12) armados com sucesso!", 4f, ScreenMessageStyle.UPPER_CENTER);
+                }
+            }
+
+            // FASE 2: Paraquedas Principais (Main Chutes)
+            // Dispara abaixo de 2.500m de altitude verdadeira, SEM depender de drogues terem existido ou aberto!
+            if (!_mainsDeployed && trueAltitude <= 2500.0)
+            {
+                if (TryDeployMains(chutes, trueAltitude))
+                {
+                    _mainsDeployed = true;
+                    ScreenMessages.PostScreenMessage("[Artemis] Paraquedas Principais ABERTOS para pouso!", 5f, ScreenMessageStyle.UPPER_CENTER);
                 }
             }
         }
 
         /// <summary>
-        /// Localiza paraquedas drogue (MK-12 / de arrasto) e aciona se o estado for SEGURO.
+        /// Localiza paraquedas drogue e aciona se não estiver em risco imediato de destruição (diferente de UNSAFE).
         /// </summary>
-        private bool TryDeployDrogues(Vessel vessel)
+        private bool TryDeployDrogues(List<ModuleParachute> chutes)
         {
-            var chutes = vessel.FindPartModulesImplementing<ModuleParachute>();
             bool anyDeployed = false;
-
             for (int i = 0; i < chutes.Count; i++)
             {
                 var chute = chutes[i];
-                if (IsDrogue(chute))
+                if (IsDrogue(chute) && chute.deploymentState == ModuleParachute.deploymentStates.STOWED)
                 {
-                    // Verifica se não vai queimar pelo calor/pressão (SAFE)
-                    if (chute.deploymentSafeState == ModuleParachute.deploymentSafeStates.SAFE &&
-                        chute.deploymentState == ModuleParachute.deploymentStates.STOWED)
+                    // Drogues podem ser acionados em SAFE ou RISKY (eles existem exatamente para frear em alta velocidade)
+                    if (chute.deploymentSafeState != ModuleParachute.deploymentSafeStates.UNSAFE)
+                    {
+                        chute.Deploy();
+                        anyDeployed = true;
+                    }
+                }
+            }
+            return anyDeployed;
+        }
+
+        /// <summary>
+        /// Localiza os paraquedas principais e garante sua abertura segura.
+        /// </summary>
+        private bool TryDeployMains(List<ModuleParachute> chutes, double trueAltitude)
+        {
+            bool anyDeployed = false;
+            for (int i = 0; i < chutes.Count; i++)
+            {
+                var chute = chutes[i];
+                if (!IsDrogue(chute) && chute.deploymentState == ModuleParachute.deploymentStates.STOWED)
+                {
+                    // Abre se estiver em estado SAFE ou se a altitude estiver em zona crítica (< 1.500m)
+                    if (chute.deploymentSafeState == ModuleParachute.deploymentSafeStates.SAFE || trueAltitude <= 1500.0)
                     {
                         chute.Deploy();
                         anyDeployed = true;
@@ -84,26 +117,14 @@ namespace Artemis.Systems
                 }
             }
 
-            return anyDeployed;
-        }
-
-        /// <summary>
-        /// Localiza os paraquedas principais restantes e aciona quando estiver seguro.
-        /// </summary>
-        private bool TryDeployMains(Vessel vessel)
-        {
-            var chutes = vessel.FindPartModulesImplementing<ModuleParachute>();
-            bool anyDeployed = false;
-
-            for (int i = 0; i < chutes.Count; i++)
+            // Trava de Emergência: abaixo de 1.000m do impacto, força a abertura de QUALQUER paraquedas guardado!
+            if (!anyDeployed && trueAltitude <= 1000.0)
             {
-                var chute = chutes[i];
-                if (!IsDrogue(chute))
+                for (int i = 0; i < chutes.Count; i++)
                 {
-                    if (chute.deploymentSafeState == ModuleParachute.deploymentSafeStates.SAFE &&
-                        chute.deploymentState == ModuleParachute.deploymentStates.STOWED)
+                    if (chutes[i].deploymentState == ModuleParachute.deploymentStates.STOWED)
                     {
-                        chute.Deploy();
+                        chutes[i].Deploy();
                         anyDeployed = true;
                     }
                 }
