@@ -9,7 +9,7 @@ namespace Artemis.Flight
     public enum ReentryPhase
     {
         Idle,               // Desligado
-        HoldingRetrograde,  // Travando vetor Retrograde para orientar o escudo térmico
+        HoldingRetrograde,  // Travando vetor Retrograde com Roll 0° para orientar o escudo térmico
         AtmosphericBraking, // Reentrada na atmosfera (absorvendo calor)
         Parachutes,         // Acionamento escalonado (MK-12 Drogues -> Mains)
         Landed              // Pouso realizado
@@ -17,8 +17,8 @@ namespace Artemis.Flight
 
     /// <summary>
     /// ReentryAutopilot: Gerencia a reentrada segura na atmosfera.
-    /// Trava no vetor Retrograde via MechJeb AttitudeController.
-    /// Mantém o SAS nativo desligado durante o controle ativo para evitar conflito/piscar de menus.
+    /// Trava a nave no vetor Retrograde via MechJeb AttitudeController,
+    /// mantendo sempre o ROLL em 0° e o SAS nativo desligado para não haver conflitos nem menus piscando.
     /// </summary>
     public class ReentryAutopilot
     {
@@ -26,17 +26,14 @@ namespace Artemis.Flight
         public bool IsActive => CurrentPhase != ReentryPhase.Idle && CurrentPhase != ReentryPhase.Landed;
         public string StatusMessage { get; private set; } = "Pronto para reentrada";
 
-        private AttitudeReference _lastReference = AttitudeReference.INERTIAL;
-
         public void StartReentry(TelemetryReader telemetry)
         {
             CurrentPhase = ReentryPhase.HoldingRetrograde;
-            StatusMessage = "Virando traseira para Retrograde (Escudo Térmico)...";
-            _lastReference = AttitudeReference.INERTIAL; // Força reavaliação inicial
+            StatusMessage = "Virando traseira para Retrograde (Escudo Térmico, Roll 0°)...";
 
             LockRetrograde(telemetry);
 
-            ScreenMessages.PostScreenMessage("[Artemis] Reentrada iniciada: Orientando escudo em Retrograde!", 5f, ScreenMessageStyle.UPPER_CENTER);
+            ScreenMessages.PostScreenMessage("[Artemis] Reentrada iniciada: Escudo em Retrograde e Roll em 0°!", 5f, ScreenMessageStyle.UPPER_CENTER);
         }
 
         public void Abort(TelemetryReader telemetry)
@@ -53,7 +50,7 @@ namespace Artemis.Flight
         {
             if (!IsActive || telemetry.Vessel == null) return;
 
-            // Mantém a orientação constante em Retrograde sem conflito com SAS nativo
+            // Mantém a orientação constante em Retrograde com Roll 0°
             LockRetrograde(telemetry);
 
             // Verifica se tocou no solo ou água
@@ -87,33 +84,36 @@ namespace Artemis.Flight
         }
 
         /// <summary>
-        /// Comanda o MechJeb AttitudeController a apontar para o vetor Retrograde.
-        /// Desliga o SAS nativo para que não haja disputa nem menus piscando.
+        /// Comanda o MechJeb AttitudeController a apontar para o vetor Retrograde com Roll travado em 0°.
+        /// Desliga o SAS nativo do KSP para que os atuadores obedeçam sem lutar.
         /// </summary>
-        private void LockRetrograde(TelemetryReader telemetry)
+        public void LockRetrograde(TelemetryReader telemetry)
         {
             if (telemetry.Vessel == null) return;
 
-            // 1. Desliga o SAS nativo do KSP para que ele não tente sobrepor o MechJeb
+            // 1. Desliga o SAS nativo do KSP para não causar pisca-pisca no navball
             if (telemetry.Vessel.ActionGroups[KSPActionGroup.SAS])
             {
                 telemetry.Vessel.ActionGroups.SetGroup(KSPActionGroup.SAS, false);
             }
 
-            // 2. Define o referencial: superfície na atmosfera, órbita no vácuo
-            AttitudeReference reference = telemetry.IsInAtmosphere 
-                ? AttitudeReference.SURFACE_VELOCITY 
-                : AttitudeReference.ORBIT;
+            // 2. Calcula o vetor retrógrado (oposto à velocidade)
+            Vector3d velocity = telemetry.IsInAtmosphere 
+                ? telemetry.Vessel.srf_velocity 
+                : telemetry.Vessel.obt_velocity;
 
-            // 3. Aplica o comando de atitude para Vector3d.back (Retrograde)
+            Vector3d retrograde = -velocity.normalized;
+
+            // 3. Converte em ângulos de superfície (Heading e Pitch)
+            TelemetryReader.VectorToHeadingPitch(telemetry.Vessel, retrograde, out double heading, out double pitch);
+
+            // 4. Aplica no MechJeb com Roll estritamente em 0.0°
             if (telemetry.MechJeb != null)
             {
                 var attitude = telemetry.MechJeb.GetComputerModule<MechJebModuleAttitudeController>();
                 if (attitude != null)
                 {
-                    // Envia comando para virar a ré da nave diretamente para a trajetória de velocidade
-                    attitude.attitudeTo(Vector3d.back, reference, this, false);
-                    _lastReference = reference;
+                    attitude.attitudeTo(heading, pitch, 0.0, this);
                 }
             }
         }
@@ -121,7 +121,7 @@ namespace Artemis.Flight
         /// <summary>
         /// Devolve o controle manual ao jogador e reativa o SAS nativo.
         /// </summary>
-        private void ReleaseControl(TelemetryReader telemetry)
+        public void ReleaseControl(TelemetryReader telemetry)
         {
             if (telemetry.MechJeb != null)
             {

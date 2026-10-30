@@ -106,5 +106,32 @@ namespace Artemis.Telemetry
                 return activeCount > 0 && flameoutCount > 0;
             }
         }
+
+        /// <summary>
+        /// Converte um vetor 3D qualquer (como velocidade ou retrógrado) em Heading (0-360) e Pitch (-90 a +90)
+        /// relativo à superfície do planeta em que a nave se encontra.
+        /// </summary>
+        public static void VectorToHeadingPitch(Vessel vessel, Vector3d direction, out double heading, out double pitch)
+        {
+            if (vessel == null || direction.sqrMagnitude < 0.0001)
+            {
+                heading = 90.0;
+                pitch = 90.0;
+                return;
+            }
+
+            Vector3d up = vessel.upAxis;
+            Vector3d north = Vector3d.Exclude(up, vessel.mainBody.transform.up).normalized;
+            Vector3d east = Vector3d.Cross(up, north).normalized;
+
+            pitch = 90.0 - Vector3d.Angle(up, direction);
+
+            Vector3d horiz = Vector3d.Exclude(up, direction).normalized;
+            heading = Vector3d.Angle(north, horiz);
+            if (Vector3d.Dot(east, horiz) < 0)
+            {
+                heading = 360.0 - heading;
+            }
+        }
     }
 }
