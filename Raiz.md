@@ -52,7 +52,7 @@ Criar um piloto automático / assistente de navegação para o jogo **KSP (Kerba
 
 #### 3.1 Turismo Suborbital (Kerbin) [STATUS: IMPLEMENTADO]
 * **Conceito:** Unificação total dos módulos de Lançamento e Lander em uma missão de 1 clique para contratos de turismo.
-* **Fase de Subida:** Decola a 100% com Roll 0° até o Apoastro atingir 75km (vácuo) e corta imediatamente a aceleração dos motores.
+* **Fase de Subida:** Decola a 100% com curva gravitacional em arco balístico (inclinando até 45° a Leste) e Roll em 0°, cortando os motores assim que o Apoastro atingir 75km (garantindo rampa aerodinâmica necessária para frenagem segura na reentrada).
 * **Fase Suborbital:** Sobe por inércia acima dos 70km, validando o cumprimento do objetivo de turismo no espaço.
 * **Fase de Retorno:** Ao atingir o topo e iniciar a descida, ativa automaticamente o módulo Lander (alinhamento no vetor Retrograde com Roll 0° e disparo sequencial de paraquedas Drogue MK-12 -> Principais até o pouso completo).
 
